@@ -36,10 +36,10 @@
 8. **🤖 Smart Offline Counseling Chatbot**:
    - Local rule and natural language intent-matching engine answering counseling rules, TFWS eligibility, mandatory documents, and conversational recommendations without consuming external API credits.
 
-9. **👥 Guided Simulation**
+9. **👥 Guided Simulation**:
    - Provides a walkthrough of CAP rounds one by one and allows the candidate to opt for self-freeze/betterment and proceeds accordingly.
 
-10. **📊 ML Model Insights & Academic Viva Dashboard**:
+10. **📊 ML Model Insights**:
    - Explains model metrics ($R^2$, MAE, RMSE), training on 337k+ rows, and the statistical formulation of probability calibration.
 
 ---
