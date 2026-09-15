@@ -11,9 +11,9 @@ import numpy as np
 
 # Primary candidate paths for unified_cap_data.csv
 DATA_PATHS = [
+    os.path.join(os.path.dirname(__file__), "data", "unified_cap_data.csv"),
     r"C:\Users\Karishma\Downloads\unified_cap_data.csv",
-    r"C:\Users\Karishma\Downloads\unified_cap_data-compressed\unified_cap_data.csv",
-    os.path.join(os.path.dirname(__file__), "data", "unified_cap_data.csv")
+    r"C:\Users\Karishma\Downloads\unified_cap_data-compressed\unified_cap_data.csv"
 ]
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
@@ -28,7 +28,8 @@ COLLEGE_TIER_DATABASE = {
     "3012": {"tier": "Tier 1 (Premier)", "avg_ctc": "₹15.2 LPA", "avg_lpa": 15.2, "max_ctc": "₹54.0 LPA", "recruiters": "Morgan Stanley, Amazon, Texas Instruments, Samsung"}, # VJTI Mumbai
     "3215": {"tier": "Tier 1 (Premier)", "avg_ctc": "₹15.0 LPA", "avg_lpa": 15.0, "max_ctc": "₹44.0 LPA", "recruiters": "Microsoft, PhonePe, Barclays, Credit Suisse"}, # SPIT Mumbai
     "6271": {"tier": "Tier 1 (Premier)", "avg_ctc": "₹13.8 LPA", "avg_lpa": 13.8, "max_ctc": "₹45.0 LPA", "recruiters": "Mastercard, Adobe, BNY Mellon, PhonePe"}, # PICT Pune
-    "6273": {"tier": "Tier 1 (Premier)", "avg_ctc": "₹10.5 LPA", "avg_lpa": 10.5, "max_ctc": "₹38.0 LPA", "recruiters": "Siemens, John Deere, Tata Motors, Mercedes Benz"}, # Walchand Sangli
+    "6273": {"tier": "Tier 1 (Premier)", "avg_ctc": "₹10.5 LPA", "avg_lpa": 10.5, "max_ctc": "₹38.0 LPA", "recruiters": "Siemens, John Deere, Tata Motors, Mercedes Benz"}, # Walchand Sangli / VIT
+    "6007": {"tier": "Tier 1 (Premier)", "avg_ctc": "₹10.5 LPA", "avg_lpa": 10.5, "max_ctc": "₹38.0 LPA", "recruiters": "Siemens, John Deere, Tata Motors, Mercedes Benz"}, # Walchand Sangli
     
     # Tier 2 (Highly Reputed / Top Autonomous)
     "6139": {"tier": "Tier 2 (High Repute)", "avg_ctc": "₹9.2 LPA", "avg_lpa": 9.2, "max_ctc": "₹33.5 LPA", "recruiters": "Nvidia, Tata Elxsi, Cisco, Veritas"}, # VIT Pune
@@ -327,6 +328,7 @@ def load_and_preprocess(force_reload=False):
             "quota": c_quota,
             "category": c_cat,
             "gender": c_gender,
+            "choice_code": str(group["choice_code"].iloc[0]) if "choice_code" in group.columns and pd.notna(group["choice_code"].iloc[0]) else f"{c_code}{abs(hash(c_course)) % 1000:03d}10",
             "college_tier": tier_info["tier"],
             "avg_placement_ctc": tier_info["avg_ctc"],
             "avg_lpa": tier_info["avg_lpa"],

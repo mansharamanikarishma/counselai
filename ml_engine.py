@@ -241,7 +241,7 @@ class AdmissionMLEngine:
                 "category_tag": cat_tag,
                 "badge": badge,
                 "sort_priority": sort_priority,
-                "choice_code": f"{row['college_code']}{abs(hash(row['course_name'])) % 1000:03d}10"  # DTE style Choice Code
+                "choice_code": str(row["choice_code"]) if "choice_code" in row and pd.notna(row["choice_code"]) else f"{row['college_code']}{abs(hash(row['course_name'])) % 1000:03d}10"
             })
 
         df_res = pd.DataFrame(results)
@@ -266,17 +266,21 @@ class AdmissionMLEngine:
             "all_ordered": df_res
         }
 
-    def simulate_betterment(self, allotted_college_code, allotted_branch, student_score, category="OPEN", selected_cities=None):
+    def simulate_betterment(self, allotted_college_code, allotted_branch, student_score, category="OPEN", selected_cities=None, selected_branches=None, *args, **kwargs):
         """
         Betterment Upgrade Simulator:
         Analyzes Round 1 -> Round 2 and Round 3 cutoff drops across higher-tier colleges.
         Identifies realistic upgrade opportunities for a student choosing Betterment (Float).
+        Strictly respects student's preferred engineering streams.
         """
         df = self.df_summary.copy()
         df = df[df["category"] == category]
 
         if selected_cities and len(selected_cities) > 0 and "All Cities" not in selected_cities:
             df = df[df["metro_city"].isin(selected_cities)]
+
+        if selected_branches and len(selected_branches) > 0 and "All Branches" not in selected_branches and "All Streams" not in selected_branches:
+            df = df[df["branch_cluster"].isin(selected_branches)]
 
         # Find current allotted college stats
         current_rows = df[(df["college_code"] == allotted_college_code) & (df["course_name"] == allotted_branch)]

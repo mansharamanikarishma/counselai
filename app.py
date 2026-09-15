@@ -18,6 +18,12 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
+import importlib
+import ml_engine
+import counselor_bot
+importlib.reload(ml_engine)
+importlib.reload(counselor_bot)
+
 from data_processor import (
     load_and_preprocess,
     COLLEGE_TIER_DATABASE,
@@ -359,6 +365,24 @@ if "active_candidate_id" not in st.session_state:
 if "nav_step" not in st.session_state:
     st.session_state["nav_step"] = "👤 Candidate Profiles"
 
+# Section 8: CAP Round Walkthrough Session State
+def walkthrough_reset():
+    st.session_state["walkthrough_round"] = 1
+    st.session_state["walkthrough_decisions"] = {1: None, 2: None, 3: None}
+    st.session_state["walkthrough_allotments"] = {1: None, 2: None, 3: None}
+    st.session_state["walkthrough_view"] = "in_progress"
+    st.session_state["wt_branches"] = None
+    st.session_state["wt_cities"] = None
+
+if "walkthrough_round" not in st.session_state:
+    walkthrough_reset()
+
+if "walkthrough_active_candidate_id" not in st.session_state:
+    st.session_state["walkthrough_active_candidate_id"] = st.session_state["active_candidate_id"]
+elif st.session_state["walkthrough_active_candidate_id"] != st.session_state["active_candidate_id"]:
+    st.session_state["walkthrough_active_candidate_id"] = st.session_state["active_candidate_id"]
+    walkthrough_reset()
+
 # Interactive Chatbot History
 if "chat_messages" not in st.session_state:
     st.session_state["chat_messages"] = [
@@ -375,11 +399,11 @@ active_cand = get_active_candidate()
 
 # Cached Models
 @st.cache_resource
-def get_ml_engine():
+def get_ml_engine(_v=4):
     return AdmissionMLEngine()
 
 @st.cache_resource
-def get_chatbot(_engine):
+def get_chatbot(_engine, _v=4):
     return CounselingChatbot(_engine)
 
 engine = get_ml_engine()
@@ -388,6 +412,109 @@ chatbot = get_chatbot(engine)
 all_cities = engine.get_all_cities()
 all_branches = engine.get_all_branches()
 colleges_dict = engine.get_all_colleges()
+
+# ----------------- MODAL DIALOG POPUPS (st.dialog) -----------------
+@st.dialog("Profile Updated")
+def show_profile_updated_dialog(name, score, hu):
+    st.success(f"Applicant record for **{name}** has been updated successfully!")
+    st.markdown(f"""
+    - **Qualifying Score:** `{score:.2f}%`
+    - **Home Jurisdiction:** {hu}
+    """)
+    st.caption("All multi-round prediction models and option forms have been recomputed.")
+    if st.button("Continue to Workspace", type="primary", use_container_width=True):
+        st.rerun()
+
+@st.dialog("Candidate Enrolled Successfully")
+def show_candidate_enrolled_dialog(name, app_id, score):
+    st.balloons()
+    st.success(f"New applicant file created for **{name}** (`{app_id}`)!")
+    st.markdown(f"- **Qualifying Merit Score:** `{score:.2f}%`")
+    st.caption("Candidate has been added to the registry and is available in the applicant switcher.")
+    if st.button("Open Candidate File", type="primary", use_container_width=True):
+        st.rerun()
+
+@st.dialog("Confirm Candidate Removal")
+def show_delete_candidate_dialog(cand):
+    st.warning(f"Are you sure you want to remove **{cand['name']}** (`{cand['id']}`)?")
+    st.write("This will remove all associated option forms and simulation records for this candidate.")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
+    with c2:
+        if st.button("🗑️ Confirm Remove", type="primary", use_container_width=True):
+            st.session_state["candidates"] = [c for c in st.session_state["candidates"] if c["id"] != cand["id"]]
+            st.rerun()
+
+@st.dialog("Confirm Self-Freeze Action")
+def show_freeze_confirm_dialog(allotment, round_num):
+    st.warning("⚠️ **Critical CAP Counseling Notice**")
+    st.markdown(f"""
+    You are choosing to **Self-Freeze** your seat at:
+    ### **{allotment['college_name']}**
+    **Branch:** {allotment['branch']} • 📍 {allotment['city']}  
+    **DTE College Code:** `{allotment['college_code']}` • **Official Choice Code:** `{allotment['choice_code']}`
+    """)
+    st.markdown("""
+    - Once you Freeze, you **exit further centralized CAP rounds**.
+    - You must pay the online ₹1,000 Seat Acceptance Fee on the official portal.
+    - You must physically report to the college campus within the reporting window.
+    """)
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Go Back", use_container_width=True):
+            st.rerun()
+    with c2:
+        if st.button("🧊 Confirm & Freeze Seat", type="primary", use_container_width=True):
+            st.session_state["walkthrough_decisions"][round_num] = "Freeze"
+            st.session_state["walkthrough_view"] = "summary"
+            st.rerun()
+
+@st.dialog("Confirm Betterment (Float) Action")
+def show_betterment_confirm_dialog(allotment, round_num):
+    st.info("🛡️ **Betterment (Float) Safety Guarantee**")
+    st.markdown(f"""
+    Your current seat at **{allotment['college_name']}** (*{allotment['branch']}*) is **100% safely reserved**.
+    """)
+    st.markdown(f"""
+    - You are advancing to **Round {round_num + 1}** to explore higher-preference upgrade possibilities.
+    - If a higher-preference college drops into your merit range in Round {round_num + 1}, you receive the upgrade.
+    - If no upgrade occurs, your Round {round_num} seat remains 100% yours!
+    """)
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
+    with c2:
+        if st.button(f"🚀 Proceed to Round {round_num + 1}", type="primary", use_container_width=True):
+            st.session_state["walkthrough_decisions"][round_num] = "Betterment"
+            st.session_state["walkthrough_round"] = round_num + 1
+            st.rerun()
+
+@st.dialog("🎉 Seat Secured: Admission Confirmed!")
+def show_seat_secured_dialog(allotment, round_num):
+    st.balloons()
+    st.success("### 🎉 Congratulations! Your Engineering Seat is Secured!")
+    st.markdown(f"""
+    **Allotted Institution:** {allotment['college_name']}  
+    **Engineering Stream:** {allotment['branch']}  
+    **Institutional Tier:** {allotment['tier']}  
+    **DTE College Code:** `{allotment['college_code']}`  
+    **Official Choice Code:** `{allotment['choice_code']}`  
+    **Final Admission Status:** Confirmed via Round {round_num} CAP  
+    """)
+    st.markdown("""
+    ---
+    **Next Mandatory Steps on Official CET Portal:**
+    1. Print your Provisional Allotment Letter.
+    2. Confirm ₹1,000 online Seat Acceptance receipt is generated.
+    3. Visit the allotted college with original documents (10th/12th marksheets, domicile, nationality, category validity if applicable) before the reporting cutoff.
+    """)
+    if st.button("View Complete Journey Summary", type="primary", use_container_width=True):
+        st.session_state["walkthrough_view"] = "summary"
+        st.rerun()
+
 
 # ----------------- MODERN PERMANENT SaaS SIDEBAR (OPTION C) -----------------
 with st.sidebar:
@@ -447,6 +574,8 @@ with st.sidebar:
     selected_idx = cand_labels.index(sel_cand_label)
     if st.session_state["candidates"][selected_idx]["id"] != st.session_state["active_candidate_id"]:
         st.session_state["active_candidate_id"] = st.session_state["candidates"][selected_idx]["id"]
+        st.session_state["walkthrough_active_candidate_id"] = st.session_state["active_candidate_id"]
+        walkthrough_reset()
         st.rerun()
 
     active_cand = get_active_candidate()
@@ -475,6 +604,12 @@ with st.sidebar:
                 ("🏛️ College Comparison", "🏛️ College Comparison"),
                 ("📈 Cutoff Trajectories", "📈 Cutoff Trajectories"),
                 ("🤖 Counseling Chatbot", "🤖 Counseling Chatbot")
+            ]
+        },
+        {
+            "category": "GUIDED SIMULATION",
+            "items": [
+                ("🧭 CAP Round Walkthrough", "🧭 CAP Round Walkthrough")
             ]
         },
         {
@@ -592,17 +727,15 @@ if nav_selection == "👤 Candidate Profiles":
                 if not is_active:
                     if st.button("⚡ Activate", key=f"act_{cand['id']}", use_container_width=True):
                         st.session_state["active_candidate_id"] = cand["id"]
+                        st.session_state["walkthrough_active_candidate_id"] = cand["id"]
+                        walkthrough_reset()
                         st.rerun()
                 else:
                     st.button("✓ Live", key=f"cur_{cand['id']}", disabled=True, use_container_width=True)
             with b_del:
                 if len(st.session_state["candidates"]) > 1 and not is_active:
                     if st.button("🗑️ Remove", key=f"del_{cand['id']}", use_container_width=True):
-                        cand_to_delete = cand["id"]
-
-    if cand_to_delete:
-        st.session_state["candidates"] = [c for c in st.session_state["candidates"] if c["id"] != cand_to_delete]
-        st.rerun()
+                        show_delete_candidate_dialog(cand)
 
     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
@@ -698,8 +831,8 @@ if nav_selection == "👤 Candidate Profiles":
                         c["cities"] = edit_cities
                         c["branches"] = edit_branches
                         break
-                st.success(f"Updated applicant record for {edit_name}!")
-                st.rerun()
+                eff = edit_cet if edit_cet is not None else edit_jee
+                show_profile_updated_dialog(edit_name, float(eff or 0.0), edit_hu)
 
     else:
         with st.container(border=True):
@@ -742,6 +875,7 @@ if nav_selection == "👤 Candidate Profiles":
 
             if st.button("Enroll Applicant into Registry", type="primary"):
                 if new_name.strip():
+                    new_eff = new_cet if new_cet is not None else new_jee
                     st.session_state["candidates"].append({
                         "id": new_id,
                         "name": new_name.strip(),
@@ -756,8 +890,7 @@ if nav_selection == "👤 Candidate Profiles":
                         "branches": ["Computer Engineering", "Information Technology"],
                         "status": "passive"
                     })
-                    st.success(f"Enrolled {new_name} successfully!")
-                    st.rerun()
+                    show_candidate_enrolled_dialog(new_name.strip(), new_id, float(new_eff or 0.0))
 
 # ----------------- SECTION 2: ADMISSION PREDICTOR -----------------
 elif nav_selection == "🎯 Admission Predictor":
@@ -996,7 +1129,8 @@ elif nav_selection == "🔄 Betterment Simulator":
                 allotted_branch=allotted_branch,
                 student_score=eff_score,
                 category=active_cand["category"],
-                selected_cities=active_cand["cities"]
+                selected_cities=active_cand["cities"],
+                selected_branches=active_cand["branches"]
             )
 
         if len(upgrades_df) > 0:
@@ -1175,6 +1309,23 @@ elif nav_selection == "🤖 Counseling Chatbot":
     </div>
     """, unsafe_allow_html=True)
 
+    # Quick Prompt Suggestion Chips
+    st.markdown("<div style='font-size: 0.72rem; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;'>Suggested Prompts & Instant Inquiries</div>", unsafe_allow_html=True)
+    chip_cols = st.columns(4)
+    quick_query = None
+    with chip_cols[0]:
+        if st.button("🎯 Suggest for my score", key="chip_score", use_container_width=True):
+            quick_query = f"Suggest best colleges for my score {eff_score:.2f}%"
+    with chip_cols[1]:
+        if st.button("🏛️ PICT Cutoff & Placement", key="chip_pict", use_container_width=True):
+            quick_query = "What is the cutoff and average placement package for PICT Pune?"
+    with chip_cols[2]:
+        if st.button("⚖️ Compare COEP vs VJTI", key="chip_comp", use_container_width=True):
+            quick_query = "Compare COEP vs VJTI"
+    with chip_cols[3]:
+        if st.button("🧊 Freeze vs Betterment", key="chip_better", use_container_width=True):
+            quick_query = "Explain Self-Freeze vs Betterment rules"
+
     # Render Persistent Conversation History
     for msg in st.session_state["chat_messages"]:
         with st.chat_message(msg["role"]):
@@ -1183,18 +1334,647 @@ elif nav_selection == "🤖 Counseling Chatbot":
     # Chat Input Box
     user_query = st.chat_input("Ask CounselAI a question (e.g., 'What is Betterment?', 'Suggest CS in Pune with 93%')...")
 
-    if user_query:
-        st.session_state["chat_messages"].append({"role": "user", "content": user_query})
-        with st.chat_message("user"):
-            st.markdown(user_query)
+    # If chip clicked or user typed
+    effective_query = user_query or quick_query
 
-        # Generate intelligent response
-        ans = chatbot.answer_query(user_query)
+    if effective_query:
+        st.session_state["chat_messages"].append({"role": "user", "content": effective_query})
+        with st.chat_message("user"):
+            st.markdown(effective_query)
+
+        # Generate intelligent response aware of active candidate profile
+        ans = chatbot.answer_query(effective_query, candidate_profile=active_cand)
         bot_reply = f"**{ans['title']}**\n\n{ans['content']}"
 
         st.session_state["chat_messages"].append({"role": "assistant", "content": bot_reply})
         with st.chat_message("assistant"):
             st.markdown(bot_reply)
+        st.rerun()
+
+# ----------------- SECTION 8: NEW FEATURE — GUIDED CAP ROUND WALKTHROUGH -----------------
+elif nav_selection == "🧭 CAP Round Walkthrough":
+    st.markdown(f"""
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #0B2046;">CAP Round-by-Round Guided Walkthrough</h3>
+            <p style="margin: 1px 0 0 0; font-size: 0.82rem; color: #64748B;">Interactive decision roadmap guiding <strong>{active_cand['name']}</strong> ({eff_score:.2f}% • {active_cand['category']}) through progressive seat allotments and Freeze vs. Betterment choices.</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 1. Persistent Disclaimer Banner (Amber Advisory Card)
+    st.markdown("""
+    <div class="advisory-card" style="background-color: #FFFBEB; border: 1px solid #FDE68A; border-left: 4px solid #D97706; padding: 12px 16px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: flex-start; gap: 10px;">
+            <span style="font-size: 1.15rem; line-height: 1;">⚠️</span>
+            <div>
+                <strong style="font-size: 0.84rem; color: #92400E; display: block; margin-bottom: 2px;">
+                    Advisory Simulation Notice & Model Disclaimer
+                </strong>
+                <span style="font-size: 0.78rem; color: #78350F; line-height: 1.45; display: block;">
+                    This guided walkthrough uses the <strong>same historical-data predictive model</strong> as the rest of CounselAI to provide illustrative planning projections. In live Maharashtra CAP counseling, cutoffs vary dynamically each year based on candidate percentiles, quota demands, and seat matrix revisions. This tool is strictly a strategic planning aid — <strong>it does not guarantee seat allotment</strong> and cannot replace the official State CET Cell portal (<a href="https://fe2026.mahacet.org" target="_blank" style="color: #92400E; text-decoration: underline;">mahacet.org</a>) or institutional counseling reporting.
+                </span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 2. Step Indicator (Clean Horizontal Progress Element)
+    curr_round = st.session_state["walkthrough_round"]
+    is_summary = (st.session_state["walkthrough_view"] == "summary")
+    
+    steps = [
+        ("1", "Round 1", "R1 Allotment & Strategy"),
+        ("2", "Round 2", "R2 Upgraded Allocation"),
+        ("3", "Round 3", "Final CAP Allocation"),
+        ("4", "Summary", "Decision Recap & Actions")
+    ]
+    
+    step_cols = st.columns(4)
+    for idx, (s_num, s_title, s_desc) in enumerate(steps):
+        step_idx = idx + 1
+        is_current = (is_summary and step_idx == 4) or (not is_summary and curr_round == step_idx)
+        is_completed = (step_idx < curr_round) or (is_summary and step_idx < 4)
+        
+        if is_current:
+            border_style = "1px solid #DBEAFE"
+            border_left = "3.5px solid #2563EB"
+            bg_style = "#EFF6FF"
+            title_color = "#1E40AF"
+            badge_icon = "● Active"
+            badge_style = "background: #DBEAFE; color: #1E40AF; font-size: 0.62rem; font-weight: 700; padding: 1px 6px; border-radius: 6px;"
+        elif is_completed:
+            border_style = "1px solid #BBF7D0"
+            border_left = "3.5px solid #16A34A"
+            bg_style = "#F0FDF4"
+            title_color = "#166534"
+            decision_tag = st.session_state["walkthrough_decisions"].get(step_idx)
+            badge_icon = f"✓ {decision_tag}" if decision_tag else "✓ Done"
+            badge_style = "background: #DCFCE7; color: #166534; font-size: 0.62rem; font-weight: 700; padding: 1px 6px; border-radius: 6px;"
+        else:
+            border_style = "1px solid #E2E8F0"
+            border_left = "1px solid #E2E8F0"
+            bg_style = "#FFFFFF"
+            title_color = "#64748B"
+            badge_icon = "Upcoming"
+            badge_style = "background: #F1F5F9; color: #64748B; font-size: 0.62rem; font-weight: 600; padding: 1px 6px; border-radius: 6px;"
+
+        with step_cols[idx]:
+            st.markdown(f"""
+            <div style="background: {bg_style}; border: {border_style}; border-left: {border_left}; border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; min-height: 64px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                    <span style="font-size: 0.78rem; font-weight: 700; color: {title_color};">{s_title}</span>
+                    <span style="{badge_style}">{badge_icon}</span>
+                </div>
+                <div style="font-size: 0.7rem; color: #64748B;">{s_desc}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # 3. View Switch: Summary or In-Progress
+    if is_summary:
+        st.markdown("<div style='font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: #0B2046; letter-spacing: 0.5px; margin-bottom: 8px;'>Counseling Simulation Summary & Record</div>", unsafe_allow_html=True)
+        
+        recap_records = []
+        for r_num in [1, 2, 3]:
+            decision = st.session_state["walkthrough_decisions"].get(r_num)
+            allotment = st.session_state["walkthrough_allotments"].get(r_num)
+            if decision or allotment:
+                recap_records.append({
+                    "CAP Round": f"Round {r_num}",
+                    "Projected College": allotment["college_name"] if allotment else "No Seat Allotted",
+                    "Branch": allotment["branch"] if allotment else "-",
+                    "City": allotment["city"] if allotment else "-",
+                    "Projected Cutoff": f"{allotment['predicted_cutoff']}%" if allotment else "-",
+                    "Suitability": f"{allotment['suitability_pct']}%" if allotment else "-",
+                    "Action Simulated": "🧊 Self-Freeze" if decision == "Freeze" else ("🚀 Betterment (Float)" if decision == "Betterment" else "Completed Round")
+                })
+
+        if recap_records:
+            st.dataframe(pd.DataFrame(recap_records), use_container_width=True)
+
+        final_round = max([r for r in [1, 2, 3] if st.session_state["walkthrough_decisions"].get(r) is not None], default=1)
+        final_decision = st.session_state["walkthrough_decisions"].get(final_round)
+        final_allotment = st.session_state["walkthrough_allotments"].get(final_round)
+
+        if final_decision == "Freeze":
+            c_name = final_allotment['college_name'] if final_allotment else 'your allotted institution'
+            b_name = final_allotment['branch'] if final_allotment else ''
+            st.markdown(f"""
+            <div class="solid-panel" style="border-left: 4px solid #166534; background: #F0FDF4; margin-top: 12px;">
+                <div style="font-weight: 700; font-size: 0.92rem; color: #166534; margin-bottom: 4px;">
+                    Simulation Outcome: Seat Confirmed via Self-Freeze in Round {final_round}
+                </div>
+                <div style="font-size: 0.8rem; color: #14532D; line-height: 1.5;">
+                    By choosing <strong>Self-Freeze</strong>, you confirmed your seat at <strong>{c_name}</strong> ({b_name}).
+                    <br>• <strong>Mandatory Portal Action:</strong> Pay the online ₹1,000 Seat Acceptance Fee on the official portal.
+                    <br>• <strong>Physical Reporting:</strong> Report to the allotted institute with your original document dossier before the reporting deadline.
+                    <br>• <strong>CAP Status:</strong> You permanently exit further centralized CAP rounds.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            c_name = final_allotment['college_name'] if final_allotment else 'your final allotted college'
+            b_name = final_allotment['branch'] if final_allotment else ''
+            st.markdown(f"""
+            <div class="solid-panel" style="border-left: 4px solid #2563EB; background: #EFF6FF; margin-top: 12px;">
+                <div style="font-weight: 700; font-size: 0.92rem; color: #1E40AF; margin-bottom: 4px;">
+                    Simulation Outcome: Round 3 Final Allocation Reached
+                </div>
+                <div style="font-size: 0.8rem; color: #1E3A8A; line-height: 1.5;">
+                    You completed the multi-round Betterment progression through Round 3. Your retained or upgraded seat at <strong>{c_name}</strong> ({b_name}) represents your final centralized allotment.
+                    <br>• <strong>Final Acceptance:</strong> Complete institutional reporting with the ₹1,000 Seat Acceptance receipt and original certificates.
+                    <br>• <strong>Institutional Spot Rounds (ACAP):</strong> If you still wish to explore vacant seats at Tier-1 colleges, participate in on-campus spot rounds post-CAP.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+        c_btn1, c_btn2 = st.columns([1, 2])
+        with c_btn1:
+            if st.button("🔄 Restart Walkthrough", type="primary", use_container_width=True):
+                walkthrough_reset()
+                st.rerun()
+        with c_btn2:
+            if final_allotment:
+                if st.button("📜 View Official Admission Slip", use_container_width=True):
+                    show_seat_secured_dialog(final_allotment, final_round)
+
+    else:
+        # =========================================================================
+        # ROUND 1: INTERACTIVE ALLOTMENT SELECTION & FILTERS
+        # =========================================================================
+        if curr_round == 1:
+            st.markdown("<div style='font-size: 0.95rem; font-weight: 700; color: #0B2046; margin-bottom: 4px;'>Round 1: Initial Allotment & Decision Center</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size: 0.8rem; color: #64748B; margin-bottom: 12px;'>Explore eligible colleges matching your percentile (<strong>{eff_score:.2f}%</strong> • {active_cand['category']}). Filter, inspect options, and select which college you want to simulate as your allotted seat.</div>", unsafe_allow_html=True)
+
+            # Interactive Filter Bar
+            with st.container(border=True):
+                st.markdown("<div style='font-size: 0.72rem; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;'>🎯 Filter & Explore Round 1 College Options</div>", unsafe_allow_html=True)
+                f1, f2, f3 = st.columns([2, 2, 1.5])
+                with f1:
+                    wt_cities = st.multiselect("Preferred Cities", options=all_cities, default=active_cand["cities"], key="wt_r1_cities")
+                with f2:
+                    wt_branches = st.multiselect("Engineering Streams", options=all_branches, default=active_cand["branches"], key="wt_r1_branches")
+                with f3:
+                    wt_tier = st.selectbox("Category Band", ["All Matches", "Target & Safe Only", "Ambitious Only"], index=0, key="wt_r1_tier")
+
+            # Persist Round 1 filters into session state for downstream rounds
+            st.session_state["wt_branches"] = wt_branches if wt_branches else active_cand.get("branches")
+            st.session_state["wt_cities"] = wt_cities if wt_cities else active_cand.get("cities")
+
+            # Predict Round 1 options using filters
+            rnd_preds = engine.predict_choices(
+                score_cet=active_cand.get("score_cet"),
+                score_jee=active_cand.get("score_jee"),
+                exam_mode=active_cand["exam_mode"],
+                category=active_cand["category"],
+                gender=active_cand["gender"],
+                selected_cities=st.session_state["wt_cities"],
+                selected_branches=st.session_state["wt_branches"],
+                round_target="Round 1"
+            )
+
+            all_choices = rnd_preds["all_ordered"]
+            if wt_tier == "Target & Safe Only":
+                filtered_choices = all_choices[all_choices["category_tag"].isin(["Target", "Safe"])]
+                if len(filtered_choices) > 0:
+                    all_choices = filtered_choices
+            elif wt_tier == "Ambitious Only":
+                filtered_choices = all_choices[all_choices["category_tag"] == "Ambitious"]
+                if len(filtered_choices) > 0:
+                    all_choices = filtered_choices
+
+            if len(all_choices) == 0:
+                all_choices = rnd_preds["all_ordered"]
+
+            if len(all_choices) == 0:
+                st.warning("No colleges found matching these specific filters. Try expanding your city or branch selection.")
+            else:
+                # Active Held Seat in Round 1
+                curr_held = st.session_state["walkthrough_allotments"].get(1)
+                if curr_held is None:
+                    # Default to top Target/Safe match
+                    best_matches = all_choices[all_choices["category_tag"].isin(["Target", "Safe"])]
+                    if len(best_matches) > 0:
+                        curr_held = best_matches.iloc[0].to_dict()
+                    else:
+                        curr_held = all_choices.iloc[0].to_dict()
+                    st.session_state["walkthrough_allotments"][1] = curr_held
+
+                # Dropdown & Quick Selection Cards for Candidates
+                st.markdown("<div style='font-size: 0.8rem; font-weight: 700; color: #0B2046; margin: 14px 0 6px 0;'>Select Your Simulated Allotted College for Round 1:</div>", unsafe_allow_html=True)
+                
+                # Selection Dropdown
+                options_list = all_choices.head(20).to_dict("records")
+                option_labels = [f"{r['college_name']} — {r['branch']} ({r['predicted_cutoff']}% • {r['category_tag']})" for r in options_list]
+                
+                current_label_idx = 0
+                for idx, r in enumerate(options_list):
+                    if r["college_code"] == curr_held["college_code"] and r["branch"] == curr_held["branch"]:
+                        current_label_idx = idx
+                        break
+
+                sel_idx = st.selectbox(
+                    "Pick from available matching colleges:",
+                    options=range(len(option_labels)),
+                    format_func=lambda i: option_labels[i],
+                    index=current_label_idx,
+                    key="r1_sel_dropdown"
+                )
+
+                if options_list[sel_idx]["college_code"] != curr_held["college_code"] or options_list[sel_idx]["branch"] != curr_held["branch"]:
+                    st.session_state["walkthrough_allotments"][1] = options_list[sel_idx]
+                    curr_held = options_list[sel_idx]
+                    st.rerun()
+
+                # Quick Choice Cards: Compact Horizontal Tiles 1 to 4
+                st.markdown("<div style='font-size: 0.78rem; font-weight: 700; color: #0B2046; text-transform: uppercase; margin: 12px 0 8px 0; letter-spacing: 0.4px;'>Recommended Allotment Options (Horizontal Tiles 1–4):</div>", unsafe_allow_html=True)
+                for c_idx in range(min(len(options_list), 4)):
+                    opt = options_list[c_idx]
+                    is_active_opt = (opt["college_code"] == curr_held["college_code"] and opt["branch"] == curr_held["branch"])
+                    tile_num = c_idx + 1
+                    tag_color = "#16A34A" if opt.get("category_tag") == "Safe" else ("#D97706" if opt.get("category_tag") == "Target" else "#DC2626")
+                    tag_bg = "#DCFCE7" if opt.get("category_tag") == "Safe" else ("#FEF3C7" if opt.get("category_tag") == "Target" else "#FEE2E2")
+                    with st.container(border=True):
+                        c_info, c_meta, c_btn = st.columns([5.5, 2.7, 1.8], vertical_alignment="center")
+                        with c_info:
+                            st.markdown(f"""
+                            <div style="line-height: 1.35;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="background: #DBEAFE; color: #1D4ED8; font-size: 0.72rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap;">Tile {tile_num}</span>
+                                    <span style="font-weight: 700; font-size: 0.88rem; color: #0B2046;">{opt['college_name']}</span>
+                                </div>
+                                <div style="font-size: 0.79rem; color: #334155; margin-top: 2px;">
+                                    <strong>{opt['branch']}</strong> <span style="color: #64748B;">• 📍 {opt['city']} • {opt.get('tier', 'Tier-2')} • DTE: <code>{opt['college_code']}</code></span>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        with c_meta:
+                            st.markdown(f"""
+                            <div style="text-align: right; line-height: 1.35;">
+                                <span style="font-size: 0.7rem; color: #64748B;">Projected Cutoff:</span> <strong style="font-size: 0.92rem; color: #0B2046;">{opt['predicted_cutoff']}%</strong><br>
+                                <span style="font-size: 0.7rem; color: #16A34A; font-weight: 600;">{opt['suitability_pct']}% Match</span> • <span style="font-size: 0.7rem; background: {tag_bg}; color: {tag_color}; font-weight: 700; padding: 1px 5px; border-radius: 3px;">{opt.get('category_tag', 'Target')}</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        with c_btn:
+                            if is_active_opt:
+                                st.button("✓ Allotted", key=f"btn_r1_sel_{c_idx}", disabled=True, use_container_width=True)
+                            else:
+                                if st.button(f"👉 Select Tile {tile_num}", key=f"btn_pick_r1_{c_idx}", use_container_width=True, type="primary"):
+                                    st.session_state["walkthrough_allotments"][1] = opt
+                                    st.rerun()
+
+                # Prominently Display Current Allotted Seat Card
+                b_class = "badge-safe" if curr_held.get("category_tag") == "Safe" else ("badge-target" if curr_held.get("category_tag") == "Target" else "badge-ambitious")
+                
+                st.markdown(f"""
+                <div class="advisory-card" style="border: 2px solid #2563EB; background: #F8FAFC; padding: 14px 18px; margin: 12px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                        <div>
+                            <span style="background: #2563EB; color: #FFFFFF; font-size: 0.68rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; text-transform: uppercase;">
+                                🔒 Current Allotted Seat (Round 1)
+                            </span>
+                            <span class="{b_class}" style="margin-left: 6px;">{curr_held.get('badge', curr_held.get('category_tag', 'Target'))}</span>
+                            <span style="font-size: 0.74rem; color: #64748B; margin-left: 8px;">DTE: <code>{curr_held['college_code']}</code></span>
+                            <span style="font-size: 0.74rem; color: #64748B; margin-left: 8px;">Choice Code: <code>{curr_held.get('choice_code', curr_held['college_code'] + '101')}</code></span>
+                            <h4 style="margin: 6px 0 2px 0; font-size: 1.08rem; font-weight: 700; color: #0B2046;">
+                                {curr_held['college_name']}
+                            </h4>
+                            <div style="font-size: 0.88rem; color: #334155;">
+                                <strong>{curr_held['branch']}</strong> • 📍 {curr_held['city']} • {curr_held['tier']}
+                            </div>
+                        </div>
+                        <div style="text-align: right; min-width: 120px;">
+                            <div style="font-size: 0.65rem; text-transform: uppercase; color: #64748B; font-weight: 700;">Projected Cutoff</div>
+                            <div style="font-size: 1.4rem; font-weight: 800; color: #0B2046;">{curr_held.get('predicted_cutoff', curr_held.get('r1_cutoff', 90.0))}%</div>
+                            <div style="font-size: 0.72rem; color: #16A34A; font-weight: 600;">Suitability: {curr_held.get('suitability_pct', 85)}%</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Strategic Decision Actions for Round 1
+                st.markdown("""
+                <div class="solid-panel" style="padding: 12px 16px; margin-top: 10px; margin-bottom: 12px;">
+                    <div style="font-size: 0.84rem; font-weight: 700; color: #0B2046;">Simulate Your Round 1 Counseling Decision:</div>
+                    <div style="font-size: 0.76rem; color: #64748B; margin-top: 2px;">
+                        • <strong>Self-Freeze:</strong> Confirms this seat permanently and exits centralized counseling.<br>
+                        • <strong>Betterment (Float):</strong> Guarantees this seat remains 100% reserved while exploring higher-tier upgrades in Round 2.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                d1, d2 = st.columns(2)
+                with d1:
+                    if st.button("🧊 Simulate: Self-Freeze Seat", use_container_width=True, type="secondary"):
+                        show_freeze_confirm_dialog(curr_held, 1)
+                with d2:
+                    if st.button("🚀 Simulate: Betterment (Float) & Advance to Round 2", use_container_width=True, type="primary"):
+                        show_betterment_confirm_dialog(curr_held, 1)
+
+        # =========================================================================
+        # ROUND 2: BETTERMENT UPGRADE EVALUATION & DECISION
+        # =========================================================================
+        elif curr_round == 2:
+            r1_seat = st.session_state["walkthrough_allotments"].get(1)
+            if not r1_seat:
+                r1_seat = all_df.iloc[0].to_dict()
+                st.session_state["walkthrough_allotments"][1] = r1_seat
+
+            st.markdown("<div style='font-size: 0.95rem; font-weight: 700; color: #0B2046; margin-bottom: 4px;'>Round 2: Betterment Upgrades & Vacancy Allocation</div>", unsafe_allow_html=True)
+            
+            # Safety Net Guarantee Card
+            st.markdown(f"""
+            <div style="background: #ECFDF5; border: 1.5px solid #10B981; border-radius: 7px; padding: 10px 14px; margin-bottom: 14px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.1rem;">🛡️</span>
+                    <div>
+                        <strong style="color: #065F46; font-size: 0.84rem;">Betterment Safety Net Active:</strong>
+                        <span style="color: #047857; font-size: 0.8rem;">
+                            Your Round 1 seat at <strong>{r1_seat['college_name']}</strong> ({r1_seat['branch']}) is <strong>100% reserved</strong>. You cannot lose this seat unless you choose to accept an upgraded allocation.
+                        </span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            pref_branches = st.session_state.get("wt_branches") or active_cand.get("branches")
+            pref_cities = st.session_state.get("wt_cities") or active_cand.get("cities")
+
+            # Query Betterment Upgrade Opportunities
+            with st.spinner("Analyzing Round 2 cutoff drift and vacancy movements..."):
+                upgrades_df = engine.simulate_betterment(
+                    allotted_college_code=r1_seat["college_code"],
+                    allotted_branch=r1_seat["branch"],
+                    student_score=eff_score,
+                    category=active_cand["category"],
+                    selected_cities=pref_cities,
+                    selected_branches=pref_branches
+                )
+
+            # Also pull Round 2 predicted choices for active candidate
+            r2_preds = engine.predict_choices(
+                score_cet=active_cand.get("score_cet"),
+                score_jee=active_cand.get("score_jee"),
+                exam_mode=active_cand["exam_mode"],
+                category=active_cand["category"],
+                gender=active_cand["gender"],
+                selected_cities=pref_cities,
+                selected_branches=pref_branches,
+                round_target="Round 2"
+            )["all_ordered"]
+
+            # Combine or display upgrade candidates (ensuring at least 4 options)
+            available_upgrades = []
+            if len(upgrades_df) > 0:
+                available_upgrades = upgrades_df.to_dict("records")
+
+            # Pad up to 4 options using r2_preds if simulate_betterment returned fewer than 4
+            already_keys = set((u.get("college_code"), u.get("branch")) for u in available_upgrades)
+            already_keys.add((r1_seat.get("college_code"), r1_seat.get("branch")))
+
+            for _, r in r2_preds.iterrows():
+                if len(available_upgrades) >= 4:
+                    break
+                key = (r["college_code"], r["branch"])
+                if key not in already_keys:
+                    available_upgrades.append({
+                        "college_code": r["college_code"],
+                        "college_name": r["college_name"],
+                        "branch": r["branch"],
+                        "city": r["city"],
+                        "tier": r["tier"],
+                        "avg_placement": r["avg_placement"],
+                        "r2_cutoff": r["predicted_cutoff"],
+                        "predicted_cutoff": r["predicted_cutoff"],
+                        "upgrade_chance_pct": r["suitability_pct"]
+                    })
+                    already_keys.add(key)
+
+            st.markdown("<div style='font-size: 0.82rem; font-weight: 700; color: #0B2046; margin: 12px 0 8px 0;'>✨ Upgraded Seats Available in Round 2 (Horizontal Tiles 1–4):</div>", unsafe_allow_html=True)
+
+            # Current seat for Round 2 (defaults to R1 if no upgrade chosen yet)
+            r2_current = st.session_state["walkthrough_allotments"].get(2) or r1_seat
+
+            # Render 4 upgrade choices as compact horizontal tiles
+            for idx in range(min(len(available_upgrades), 4)):
+                upg = available_upgrades[idx]
+                u_code = upg.get("college_code", "0000")
+                u_branch = upg.get("branch", "Computer Engineering")
+                u_name = upg.get("college_name", "College")
+                u_tier = upg.get("tier", "Tier-2")
+                u_ctc = upg.get("avg_placement", "₹8.5 LPA")
+                u_chance = upg.get("upgrade_chance_pct", 75)
+                u_r2_cutoff = upg.get("r2_cutoff", upg.get("predicted_cutoff", 92.5))
+                u_city = upg.get("city", pref_cities[0] if pref_cities else "Pune")
+                
+                is_this_selected = (r2_current.get("college_code") == u_code and r2_current.get("branch") == u_branch)
+                tile_num = idx + 1
+
+                with st.container(border=True):
+                    c_info, c_meta, c_btn = st.columns([5.5, 2.7, 1.8], vertical_alignment="center")
+                    with c_info:
+                        st.markdown(f"""
+                        <div style="line-height: 1.35;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span style="background: #DCFCE7; color: #166534; font-size: 0.72rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap;">Tile {tile_num}</span>
+                                <span style="font-weight: 700; font-size: 0.88rem; color: #0B2046;">{u_name}</span>
+                            </div>
+                            <div style="font-size: 0.79rem; color: #334155; margin-top: 2px;">
+                                <strong>{u_branch}</strong> <span style="color: #64748B;">• 📍 {u_city} • {u_tier} • DTE: <code>{u_code}</code></span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with c_meta:
+                        st.markdown(f"""
+                        <div style="text-align: right; line-height: 1.35;">
+                            <span style="font-size: 0.7rem; color: #64748B;">Round 2 Cutoff:</span> <strong style="font-size: 0.92rem; color: #0B2046;">{u_r2_cutoff}%</strong><br>
+                            <span style="font-size: 0.7rem; color: #16A34A; font-weight: 700;">🚀 {u_chance}% Upgrade Chance</span> <span style="color: #94A3B8;">•</span> <span style="font-size: 0.7rem; color: #475569;">{u_ctc}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with c_btn:
+                        if is_this_selected:
+                            st.button("✓ Selected", key=f"btn_upg_sel_{idx}", disabled=True, use_container_width=True)
+                        else:
+                            if st.button(f"✨ Accept Tile {tile_num}", key=f"btn_accept_upg_{idx}", use_container_width=True, type="primary"):
+                                st.session_state["walkthrough_allotments"][2] = {
+                                    "college_code": u_code,
+                                    "choice_code": f"{u_code}101",
+                                    "college_name": u_name,
+                                    "branch": u_branch,
+                                    "city": u_city,
+                                    "tier": u_tier,
+                                    "predicted_cutoff": u_r2_cutoff,
+                                    "suitability_pct": u_chance,
+                                    "category_tag": "Target"
+                                }
+                                st.rerun()
+
+            # Option to explicitly keep R1 seat
+            if r2_current.get("college_code") != r1_seat["college_code"]:
+                if st.button(f"🛡️ Revert & Retain Original Round 1 Seat ({r1_seat['college_name'][:35]}...)", use_container_width=True):
+                    st.session_state["walkthrough_allotments"][2] = r1_seat
+                    st.rerun()
+
+            # Display Currently Held Seat in Round 2
+            st.markdown(f"""
+            <div class="advisory-card" style="border: 2px solid #0B2046; background: #FFFFFF; padding: 12px 16px; margin: 12px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="background: #0B2046; color: white; font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 4px;">
+                            CURRENT HELD SEAT FOR ROUND 2
+                        </span>
+                        <h4 style="margin: 6px 0 2px 0; font-size: 1.05rem; font-weight: 700; color: #0B2046;">{r2_current['college_name']}</h4>
+                        <div style="font-size: 0.84rem; color: #475569;"><strong>{r2_current['branch']}</strong> • 📍 {r2_current.get('city', '-')} • {r2_current.get('tier', 'Tier-2')}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="font-size: 0.72rem; color: #64748B;">Cutoff:</span>
+                        <div style="font-size: 1.3rem; font-weight: 800; color: #0B2046;">{r2_current.get('predicted_cutoff', 90.0)}%</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            d2_1, d2_2 = st.columns(2)
+            with d2_1:
+                if st.button("🧊 Simulate: Self-Freeze (Confirm This Seat Now)", use_container_width=True, type="secondary"):
+                    show_freeze_confirm_dialog(r2_current, 2)
+            with d2_2:
+                if st.button("🚀 Simulate: Betterment (Float) to Round 3 (Final Round)", use_container_width=True, type="primary"):
+                    show_betterment_confirm_dialog(r2_current, 2)
+
+        # =========================================================================
+        # ROUND 3: FINAL ROUND ALLOTMENT & SEAT SECURED
+        # =========================================================================
+        elif curr_round == 3:
+            # Active held seat from Round 2 or Round 1
+            r3_seat = st.session_state["walkthrough_allotments"].get(2) or st.session_state["walkthrough_allotments"].get(1)
+            if not r3_seat:
+                r3_seat = all_df.iloc[0].to_dict()
+                st.session_state["walkthrough_allotments"][3] = r3_seat
+
+            st.markdown("<div style='font-size: 0.95rem; font-weight: 700; color: #0B2046; margin-bottom: 4px;'>Round 3: Final Centralized Allotment & Admission Confirmation</div>", unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div style="background: #EFF6FF; border: 1.5px solid #3B82F6; border-radius: 7px; padding: 10px 14px; margin-bottom: 14px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.1rem;">🏁</span>
+                    <div>
+                        <strong style="color: #1E40AF; font-size: 0.84rem;">Final Centralized Round:</strong>
+                        <span style="color: #1E3A8A; font-size: 0.8rem;">
+                            Round 3 concludes the centralized CAP process. All remaining institutional vacancies are definitively filled.
+                        </span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            pref_branches = st.session_state.get("wt_branches") or active_cand.get("branches")
+            pref_cities = st.session_state.get("wt_cities") or active_cand.get("cities")
+
+            # Query Round 3 options to provide 4 tiles
+            r3_preds = engine.predict_choices(
+                score_cet=active_cand.get("score_cet"),
+                score_jee=active_cand.get("score_jee"),
+                exam_mode=active_cand["exam_mode"],
+                category=active_cand["category"],
+                gender=active_cand["gender"],
+                selected_cities=pref_cities,
+                selected_branches=pref_branches,
+                round_target="Round 3"
+            )["all_ordered"]
+
+            r3_options = [r3_seat]
+            already_keys = {(r3_seat.get("college_code"), r3_seat.get("branch"))}
+            for _, r in r3_preds.iterrows():
+                if len(r3_options) >= 4:
+                    break
+                key = (r["college_code"], r["branch"])
+                if key not in already_keys:
+                    r3_options.append({
+                        "college_code": r["college_code"],
+                        "choice_code": r.get("choice_code", f"{r['college_code']}101"),
+                        "college_name": r["college_name"],
+                        "branch": r["branch"],
+                        "city": r["city"],
+                        "tier": r["tier"],
+                        "predicted_cutoff": r["predicted_cutoff"],
+                        "suitability_pct": r["suitability_pct"],
+                        "category_tag": r["category_tag"]
+                    })
+                    already_keys.add(key)
+
+            st.markdown("<div style='font-size: 0.82rem; font-weight: 700; color: #0B2046; margin: 12px 0 8px 0;'>🎯 Final Round Allocation Options (Horizontal Tiles 1–4):</div>", unsafe_allow_html=True)
+            for idx in range(min(len(r3_options), 4)):
+                opt = r3_options[idx]
+                is_selected = (r3_seat.get("college_code") == opt.get("college_code") and r3_seat.get("branch") == opt.get("branch"))
+                tile_num = idx + 1
+                with st.container(border=True):
+                    c_info, c_meta, c_btn = st.columns([5.5, 2.7, 1.8], vertical_alignment="center")
+                    with c_info:
+                        st.markdown(f"""
+                        <div style="line-height: 1.35;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span style="background: #FEF3C7; color: #92400E; font-size: 0.72rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap;">Tile {tile_num}</span>
+                                <span style="font-weight: 700; font-size: 0.88rem; color: #0B2046;">{opt['college_name']}</span>
+                            </div>
+                            <div style="font-size: 0.79rem; color: #334155; margin-top: 2px;">
+                                <strong>{opt['branch']}</strong> <span style="color: #64748B;">• 📍 {opt.get('city', '-')} • {opt.get('tier', 'Tier-2')} • DTE: <code>{opt['college_code']}</code></span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with c_meta:
+                        badge_label = "Confirmed Allotment" if is_selected else f"{opt.get('category_tag', 'Target')} Option"
+                        badge_bg = "#DCFCE7" if is_selected else "#FEF3C7"
+                        badge_color = "#166534" if is_selected else "#92400E"
+                        st.markdown(f"""
+                        <div style="text-align: right; line-height: 1.35;">
+                            <span style="font-size: 0.7rem; color: #64748B;">Final Cutoff:</span> <strong style="font-size: 0.92rem; color: #0B2046;">{opt.get('predicted_cutoff', 90.0)}%</strong><br>
+                            <span style="font-size: 0.7rem; background: {badge_bg}; color: {badge_color}; font-weight: 700; padding: 1px 5px; border-radius: 3px;">● {badge_label}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with c_btn:
+                        if is_selected:
+                            st.button("✓ Confirmed", key=f"btn_r3_sel_{idx}", disabled=True, use_container_width=True)
+                        else:
+                            if st.button(f"👉 Select Tile {tile_num}", key=f"btn_r3_pick_{idx}", use_container_width=True, type="primary"):
+                                st.session_state["walkthrough_allotments"][3] = opt
+                                st.rerun()
+
+            # Final Allotment Display Card
+            st.markdown(f"""
+            <div class="advisory-card" style="border: 2.5px solid #16A34A; background: #F0FDF4; padding: 16px 20px; margin: 14px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <span style="background: #16A34A; color: white; font-size: 0.68rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; text-transform: uppercase;">
+                            🎯 FINAL ALLOTTED SEAT FOR ADMISSION
+                        </span>
+                        <h3 style="margin: 8px 0 3px 0; font-size: 1.2rem; font-weight: 800; color: #0B2046;">
+                            {r3_seat['college_name']}
+                        </h3>
+                        <div style="font-size: 0.92rem; color: #166534; font-weight: 600;">
+                            {r3_seat['branch']} • 📍 {r3_seat.get('city', '-')} • {r3_seat.get('tier', 'Tier-2')}
+                        </div>
+                        <div style="font-size: 0.78rem; color: #475569; margin-top: 6px;">
+                            DTE College Code: <code>{r3_seat.get('college_code', '0000')}</code> • Official Choice Code: <code>{r3_seat.get('choice_code', '0000101')}</code>
+                        </div>
+                    </div>
+                    <div style="text-align: right; min-width: 120px;">
+                        <div style="font-size: 0.65rem; text-transform: uppercase; color: #166534; font-weight: 700;">Final Cutoff</div>
+                        <div style="font-size: 1.6rem; font-weight: 800; color: #166534;">{r3_seat.get('predicted_cutoff', 90.0)}%</div>
+                        <div style="font-size: 0.72rem; color: #15803D; font-weight: 700;">Status: Ready to Secure</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.session_state["walkthrough_allotments"][3] = r3_seat
+
+            # Finalize & Secure Admission Button
+            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+            if st.button("🎓 Finalize Admission & Secure Seat!", type="primary", use_container_width=True):
+                st.session_state["walkthrough_decisions"][3] = "Admission Secured"
+                show_seat_secured_dialog(r3_seat, 3)
 
 # ----------------- SECTION 9: DATASET & ANALYTICS (SIMPLISTIC & VIVA-READY) -----------------
 elif nav_selection == "📊 Dataset & Analytics":
@@ -1229,7 +2009,46 @@ elif nav_selection == "📊 Dataset & Analytics":
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+    # Master Dataset Download Card
+    with st.container(border=True):
+        st.markdown("""
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div>
+                <h4 style="margin: 0; font-size: 1rem; font-weight: 700; color: #0B2046;">📥 Consolidated Master CAP Dataset (2021–2025)</h4>
+                <p style="margin: 2px 0 0 0; font-size: 0.8rem; color: #64748B;">
+                    Reconciled 341,929 rows with 100% verified 4-digit DTE codes and official 9-digit choice codes.
+                </p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        import os
+        csv_candidates = [
+            "data/unified_cap_data.csv",
+            "C:\\Users\\Karishma\\.gemini\\antigravity\\scratch\\mhtcet_predictor\\data\\unified_cap_data.csv",
+            "C:\\Users\\Karishma\\OneDrive\\Documents\\College\\Semester 3\\MinorPR\\CounselAI\\data\\unified_cap_data.csv"
+        ]
+        found_csv = None
+        for p in csv_candidates:
+            if os.path.exists(p):
+                found_csv = p
+                break
+
+        if found_csv:
+            with open(found_csv, "rb") as f_csv:
+                st.download_button(
+                    label="⬇️ Download unified_cap_data.csv (62.8 MB)",
+                    data=f_csv,
+                    file_name="unified_cap_data.csv",
+                    mime="text/csv",
+                    type="primary",
+                    use_container_width=True
+                )
+            st.caption(f"📁 Local File Path: `{found_csv}`")
+        else:
+            st.warning("Master CSV not found at default data paths.")
 
     col_g1, col_g2 = st.columns(2)
     with col_g1:
