@@ -36,8 +36,14 @@
 8. **🤖 Smart Offline Counseling Chatbot**:
    - Local rule and natural language intent-matching engine answering counseling rules, TFWS eligibility, mandatory documents, and conversational recommendations without consuming external API credits.
 
-9. **📊 ML Model Insights & Academic Viva Dashboard**:
-   - Explains model metrics ($R^2$, MAE, RMSE), training on 337k+ rows, and the statistical formulation of $\Phi(z)$ probability calibration.
+9. **👥 Guided Simulation**
+   - Provides a walkthrough of CAP rounds one by one and allows the candidate to opt for self-freeze/betterment and proceeds accordingly.
+
+
+---
+
+**📊 ML Model Insights & Academic Viva Dashboard**:
+   - Explains model metrics ($R^2$, MAE, RMSE), training on 337k+ rows, and the statistical formulation of probability calibration.
 
 ---
 
@@ -81,28 +87,6 @@ mhtcet_predictor/
    ```
    The application will automatically open in your web browser at `http://localhost:8501`!
 
----
-
-## 🌐 How to Deploy for Free on Streamlit Community Cloud
-
-You can host this application permanently with a free public URL (e.g. `https://mhtcet-counselor.streamlit.app`) in 3 minutes:
-
-1. **Initialize a Git repository and push to GitHub**:
-   ```bash
-   git init
-   git add app.py ml_engine.py data_processor.py counselor_bot.py betterment_guide.py requirements.txt README.md cache/
-   git commit -m "Initial release of MHT-CET Admission Predictor & Counseling Portal"
-   git branch -M main
-   git remote add origin https://github.com/<YOUR_USERNAME>/mhtcet-predictor.git
-   git push -u origin main
-   ```
-
-2. **Deploy on Streamlit Cloud**:
-   - Go to [share.streamlit.io](https://share.streamlit.io) and log in with your GitHub account.
-   - Click **"New app"**.
-   - Select your repository (`mhtcet-predictor`), branch (`main`), and set Main file path to `app.py`.
-   - Click **"Deploy!"**.
-   - Your live public web app is ready and accessible to anyone on the internet for free!
 
 ---
 
