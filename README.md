@@ -39,10 +39,7 @@
 9. **👥 Guided Simulation**
    - Provides a walkthrough of CAP rounds one by one and allows the candidate to opt for self-freeze/betterment and proceeds accordingly.
 
-
----
-
-**📊 ML Model Insights & Academic Viva Dashboard**:
+10. **📊 ML Model Insights & Academic Viva Dashboard**:
    - Explains model metrics ($R^2$, MAE, RMSE), training on 337k+ rows, and the statistical formulation of probability calibration.
 
 ---
